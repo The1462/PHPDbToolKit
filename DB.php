@@ -1,8 +1,16 @@
 <?php
 
-    /**
-     * Developed By The1462
-     */
+/**
+ *
+ * @author Mustafa Zeytin <the1462@gmail.com>
+ * @link htpp://www.mustafazeytin.com
+ *
+ * Company Oggree!
+ * @link http://www.oggree.com
+ *
+ */
+
+
 
 /** for normal
 $__MySQL['default']['hostname'] = 'localhost';
@@ -14,15 +22,10 @@ $__MySQL['default']['dbcollat'] = 'utf8_general_ci';
 */
 
 
-/** For CodeIgniter */
-
-
-
-
 class DB
 {
     private static $__MySQL=NULL;
-    private static $__usageType="CI";
+    private static $__usageType="Omega";
     
     
     public function __construct() {
@@ -36,6 +39,18 @@ class DB
                     self::$__MySQL=$db;
                 }
                 break;
+
+
+            case "Omega":
+                if(self::$__MySQL==NULL)
+                {
+
+                    include(APP_PATH.'/config/database.php');
+                    // Database data
+                    self::$__MySQL=$db;
+                }
+                break;
+
             case "normal":
                 if(self::$__MySQL==NULL)
                 {
@@ -57,7 +72,7 @@ class DB
         
     }
 
-    protected function connect($connection=NULL)
+    protected static function connect($connection=NULL)
     {
         if($connection==NULL)
         {
@@ -74,7 +89,7 @@ class DB
     }
     
     
-    protected function security($data)
+    protected static function security($data)
     {
         
         return $data;
@@ -87,33 +102,78 @@ class DB
         {
             die("You Didn't Write Table id or any query! I will kil you!!!!");
         }
+
+        //getting table primary key
+        $query      = "SHOW INDEX FROM ".self::security($table)." WHERE key_name='PRIMARY' and Seq_in_index='1';";
         
         if(is_numeric($queryOrID))
         {
-            $query  = "SELECT * FROM ".self::security($table)." WHERE id='".self::security($queryOrID)."'";
+            $primary_keyFname   = "(SELECT column_name FROM information_schema.statistics WHERE table_schema='".self::$__MySQL[$connection]['database']."' AND table_name='".self::security($table)."' AND index_name='PRIMARY' ORDER BY seq_in_index)";
+            $query  .= "SELECT * FROM ".self::security($table)." WHERE $primary_keyFname='".self::security($queryOrID)."';";
         }
         else
         {
-            $query  = "SELECT * FROM ".self::security($table)." WHERE ".self::security($queryOrID);
+            $query  .= "SELECT * FROM ".self::security($table)." WHERE ".self::security($queryOrID).";";
+        }
+
+        var_dump($query);
+
+        $_Connect   = self::connect($connection);
+
+
+        if ($_Connect->multi_query($query))
+        {
+            do {
+                /* store first result set */
+                if ($result = $_Connect->store_result()) {
+                    while ($row = $result->fetch_object()) {
+                        $tempSet[]  = $row;
+                    }
+                    $data[] = $tempSet;
+                    unset($tempSet);
+                    $result->free();
+                }
+
+            } while ($_Connect->more_results() && $_Connect->next_result());
+        }
+        else
+        {
+            print("<pre>");
+            print_r($_Connect->error);
+            print_r($_Connect->error_list);
+            print("<pre>");
+            return false;
         }
         
-        
-        $_Connect   = self::connect($connection);
-        
-        $data   = mysqli_fetch_object(mysqli_query($_Connect, $query));
-        
         mysqli_close($_Connect);
-        
-        
-        if($data!=NULL)
-        {
-            $__dataInformation = (object) array(
-                'connection'    => $connection,
-                'table'         => $table,
-                'id'            => $data->id,
-                'record_type'   => "old"
-            );
 
+
+
+
+        if(!empty($data[1]))
+        {
+            if(isset($data[0][0]->Column_name))
+            {
+                $primary_key    = $data[0][0]->Column_name;
+
+                $__dataInformation = (object) array(
+                    'connection'    => $connection,
+                    'table'         => $table,
+                    'primary_key'   => $data[0][0]->Column_name,
+                    'primary_value' => $data[1][0]->$primary_key,
+                    'record_type'   => "old"
+                );
+            }
+            else
+            {
+                $__dataInformation = (object) array(
+                    'connection'            => $connection,
+                    'table'                 => $table,
+                    'record_type'           => "old"
+                );
+            }
+
+            $data   = $data[1][0];
             $data->__dataInformation    = $__dataInformation;
         }
         else
@@ -179,7 +239,7 @@ class DB
         {
             if($data->__dataInformation->record_type=="new")
             {
-                $_Query = self::insertQueryBuilder($singleData);
+                $_Query = self::insertQueryBuilder($data);
                 
                 $_Connect   = self::connect($_Query["connection"]);
                 
@@ -258,11 +318,11 @@ class DB
         $_String1   = "UPDATE ".$data->__dataInformation->table." SET ";
         $_String2   = NULL;
 
-        if(isset($data->__dataInformation->id))
+        if(isset($data->__dataInformation->primary_key))
         {
-            $_String3   = "WHERE id='".self::security($data->__dataInformation->id)."'";
+            $_String3   = "WHERE `".$data->__dataInformation->primary_key."`='".self::security($data->__dataInformation->primary_key)."'";
         }
-        else if(!isset($data->__dataInformation->id) && isset($data->__dataInformation->where))
+        else if(!isset($data->__dataInformation->primary_key) && isset($data->__dataInformation->where))
         {
             $_String3   = " WHERE ".self::security($data->__dataInformation->where);
         }
@@ -335,6 +395,27 @@ class DB
         
         return $data;
     }
+
+    static function unique($data)
+    {
+
+    }
+
+    static function exec($query, $connection="default")
+    {
+        $_Connect   = self::connect($connection);
+
+        $data   = mysqli_query($_Connect, $query);
+
+        if($data)
+        {
+            return $data;
+        }
+        else
+        {
+            return false;
+        }
+    }
     
     static function find($table, $query=NULL, $connection="default")
     {
@@ -349,7 +430,7 @@ class DB
         
         
         $_Connect   = self::connect($connection);
-        
+
         $data   = mysqli_query($_Connect, $_Query);
         
         $x=0;
